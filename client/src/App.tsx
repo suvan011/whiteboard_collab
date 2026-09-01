@@ -201,6 +201,25 @@ export function App() {
         onLeaveRoom={handleLeaveRoom}
       />
 
+      {/* Insecure Remote Context Notice Banner (browsers require HTTPS for mic access on non-localhost) */}
+      {window.location.protocol === 'http:' &&
+        window.location.hostname !== 'localhost' &&
+        window.location.hostname !== '127.0.0.1' && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 px-4 py-2 text-xs text-amber-200 flex items-center justify-between z-30">
+            <span>
+              ⚠️ <strong>Microphone Access Notice:</strong> Browsers require HTTPS to connect audio devices over live tunnels.
+            </span>
+            <button
+              onClick={() => {
+                window.location.href = window.location.href.replace('http:', 'https:');
+              }}
+              className="px-3 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg hover:bg-amber-400 transition-colors shrink-0 ml-3"
+            >
+              Switch to HTTPS
+            </button>
+          </div>
+        )}
+
       {/* Main Collaborative Canvas Workspace */}
       <div className="relative flex-1 w-full h-full overflow-hidden">
         {/* Floating Top Tool Palette */}
@@ -239,11 +258,18 @@ export function App() {
           isInVoice={webRTC.isInVoice}
           isMuted={webRTC.isMuted}
           localSpeaking={webRTC.localSpeaking}
+          micVolumeLevel={webRTC.micVolumeLevel}
+          audioInputDevices={webRTC.audioInputDevices}
+          audioOutputDevices={webRTC.audioOutputDevices}
+          selectedAudioInputId={webRTC.selectedAudioInputId}
+          selectedAudioOutputId={webRTC.selectedAudioOutputId}
           currentUser={currentUser}
           voiceParticipants={webRTC.voiceParticipants}
           onJoinVoice={webRTC.joinVoice}
           onLeaveVoice={webRTC.leaveVoice}
           onToggleMute={webRTC.toggleMute}
+          onSwitchAudioInput={webRTC.switchAudioInput}
+          onSwitchAudioOutput={webRTC.switchAudioOutput}
         />
 
         {/* High-DPI Canvas Rendering Engine */}
@@ -253,7 +279,9 @@ export function App() {
           tool={whiteboard.tool}
           color={whiteboard.color}
           transform={whiteboard.transform}
+          setTransform={whiteboard.setTransform}
           isPanning={whiteboard.isPanning}
+          isSpacePressed={whiteboard.isSpacePressed}
           activeDrawingElement={whiteboard.activeDrawingElement}
           liveStrokes={whiteboard.liveStrokes}
           remoteCursors={remoteCursors}
@@ -263,7 +291,6 @@ export function App() {
           onMouseDown={whiteboard.handleMouseDown}
           onMouseMove={whiteboard.handleMouseMove}
           onMouseUp={whiteboard.handleMouseUp}
-          onWheel={whiteboard.handleWheel}
         />
       </div>
 

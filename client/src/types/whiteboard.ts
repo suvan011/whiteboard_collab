@@ -5,6 +5,7 @@
 
 export type ToolType =
   | 'select'
+  | 'hand'
   | 'pen'
   | 'highlighter'
   | 'eraser'

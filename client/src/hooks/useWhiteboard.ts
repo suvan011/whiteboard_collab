@@ -41,6 +41,7 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
     offsetY: 0,
   });
   const [isPanning, setIsPanning] = useState<boolean>(false);
+  const [isSpacePressed, setIsSpacePressed] = useState<boolean>(false);
 
   // In-progress active local drawing element
   const [activeDrawingElement, setActiveDrawingElement] = useState<DrawingElement | null>(null);
@@ -60,8 +61,9 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
     color: string;
   } | null>(null);
 
-  // Interaction tracking refs
+  // Interaction tracking refs (synchronous to prevent race conditions during fast drags)
   const isMouseDownRef = useRef<boolean>(false);
+  const isPanningRef = useRef<boolean>(false);
   const isSpacePressedRef = useRef<boolean>(false);
   const startPointRef = useRef<Point | null>(null);
   const dragStartElementPosRef = useRef<{ x: number; y: number } | null>(null);
@@ -241,8 +243,14 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
   // Handle Mouse Down
   const handleMouseDown = useCallback(
     (e: React.MouseEvent<HTMLCanvasElement>, canvasRect: DOMRect) => {
-      // Middle click or Spacebar held -> Start Canvas Pan
-      if (e.button === 1 || isSpacePressedRef.current) {
+      // Prevent default on middle and right clicks so they don't scroll or trigger context menu
+      if (e.button === 1 || e.button === 2) {
+        e.preventDefault();
+      }
+
+      // Hand tool, Middle click (button 1), Right click (button 2), or Spacebar held -> Start Canvas Pan
+      if (tool === 'hand' || e.button === 1 || e.button === 2 || isSpacePressedRef.current) {
+        isPanningRef.current = true;
         setIsPanning(true);
         panStartRef.current = {
           mouseX: e.clientX,
@@ -253,7 +261,7 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
         return;
       }
 
-      if (e.button !== 0) return; // Only primary left click
+      if (e.button !== 0) return; // Only primary left click for drawing
 
       const canvasPoint = screenToCanvas(e.clientX, e.clientY, canvasRect);
       isMouseDownRef.current = true;
@@ -261,7 +269,6 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
 
       // Tool: Select
       if (tool === 'select') {
-        // Hit test topmost element under pointer (search reversed)
         let hitId: string | null = null;
         for (let i = elements.length - 1; i >= 0; i--) {
           if (isPointHittingElement(canvasPoint, elements[i])) {
@@ -287,9 +294,8 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
 
       // Tool: Eraser
       if (tool === 'eraser') {
-        // Remove any element under click immediately
         for (let i = elements.length - 1; i >= 0; i--) {
-          if (isPointHittingElement(canvasPoint, elements[i], 12)) {
+          if (isPointHittingElement(canvasPoint, elements[i], 14)) {
             deleteElement(elements[i].id);
             break;
           }
@@ -369,8 +375,8 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
       const canvasPoint = screenToCanvas(e.clientX, e.clientY, canvasRect);
       onEmitCursor?.(canvasPoint.x, canvasPoint.y);
 
-      // Handle Pan dragging
-      if (isPanning && panStartRef.current) {
+      // Handle Pan dragging (Hand tool, Right-click, Middle-click, or Spacebar drag)
+      if (isPanningRef.current && panStartRef.current) {
         const dx = e.clientX - panStartRef.current.mouseX;
         const dy = e.clientY - panStartRef.current.mouseY;
         setTransform((prev) => ({
@@ -386,7 +392,7 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
       // Tool: Eraser continuous swipe
       if (tool === 'eraser') {
         for (let i = elements.length - 1; i >= 0; i--) {
-          if (isPointHittingElement(canvasPoint, elements[i], 12)) {
+          if (isPointHittingElement(canvasPoint, elements[i], 14)) {
             deleteElement(elements[i].id);
           }
         }
@@ -402,7 +408,6 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
         const dy = canvasPoint.y - startPointRef.current.y;
 
         if (selectedEl.type === 'stroke') {
-          // Translate all stroke points
           const movedPoints = selectedEl.points.map((pt) => ({
             x: pt.x + (canvasPoint.x - startPointRef.current!.x),
             y: pt.y + (canvasPoint.y - startPointRef.current!.y),
@@ -453,10 +458,9 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
         return;
       }
 
-      // Tool: Shapes (Rectangle, Circle, Line, Arrow) preview update
+      // Tool: Shapes preview update
       if (activeDrawingElement && activeDrawingElement.type === 'shape') {
         let endPt = canvasPoint;
-        // Shift key locks 1:1 aspect ratio for rect/circle
         if (e.shiftKey && (activeDrawingElement.shapeType === 'rectangle' || activeDrawingElement.shapeType === 'circle')) {
           const dx = canvasPoint.x - activeDrawingElement.start.x;
           const dy = canvasPoint.y - activeDrawingElement.start.y;
@@ -474,7 +478,6 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
       }
     },
     [
-      isPanning,
       tool,
       selectedElementId,
       elements,
@@ -489,7 +492,8 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
 
   // Handle Mouse Up
   const handleMouseUp = useCallback(() => {
-    if (isPanning) {
+    if (isPanningRef.current) {
+      isPanningRef.current = false;
       setIsPanning(false);
       panStartRef.current = null;
     }
@@ -503,51 +507,44 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
       addElement(activeDrawingElement);
       setActiveDrawingElement(null);
     }
-  }, [isPanning, activeDrawingElement, addElement]);
+  }, [activeDrawingElement, addElement]);
 
-  // Handle Canvas Wheel (Zoom & Pan)
-  const handleWheel = useCallback(
-    (e: React.WheelEvent<HTMLCanvasElement>, canvasRect: DOMRect) => {
-      e.preventDefault();
-
-      if (e.ctrlKey || e.metaKey) {
-        // Zoom on pinch / Ctrl + wheel centered around mouse pointer
-        const zoomFactor = e.deltaY < 0 ? 1.1 : 0.9;
-        const mouseX = e.clientX - canvasRect.left;
-        const mouseY = e.clientY - canvasRect.top;
-
-        setTransform((prev) => {
-          const newScale = Math.min(Math.max(prev.scale * zoomFactor, 0.2), 5.0);
-          const newOffsetX = mouseX - (mouseX - prev.offsetX) * (newScale / prev.scale);
-          const newOffsetY = mouseY - (mouseY - prev.offsetY) * (newScale / prev.scale);
-          return {
-            scale: newScale,
-            offsetX: newOffsetX,
-            offsetY: newOffsetY,
-          };
-        });
-      } else {
-        // Pan on normal wheel/trackpad scroll
-        setTransform((prev) => ({
-          ...prev,
-          offsetX: prev.offsetX - e.deltaX,
-          offsetY: prev.offsetY - e.deltaY,
-        }));
+  // Global window mouseup listener to release stuck drags anywhere on screen
+  useEffect(() => {
+    const handleGlobalMouseUp = () => {
+      if (isPanningRef.current) {
+        isPanningRef.current = false;
+        setIsPanning(false);
+        panStartRef.current = null;
       }
-    },
-    []
-  );
+      if (isMouseDownRef.current) {
+        isMouseDownRef.current = false;
+        startPointRef.current = null;
+        dragStartElementPosRef.current = null;
+        if (activeDrawingElement) {
+          addElement(activeDrawingElement);
+          setActiveDrawingElement(null);
+        }
+      }
+    };
+
+    window.addEventListener('mouseup', handleGlobalMouseUp);
+    return () => {
+      window.removeEventListener('mouseup', handleGlobalMouseUp);
+    };
+  }, [activeDrawingElement, addElement]);
 
   // Keyboard Shortcuts
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // If typing in input or textarea, ignore canvas global shortcuts
       const activeTag = document.activeElement?.tagName.toLowerCase();
-      if (activeTag === 'input' || activeTag === 'textarea') return;
+      if (activeTag === 'input' || activeTag === 'textarea' || (document.activeElement as HTMLElement)?.isContentEditable) return;
 
-      // Spacebar hold for pan
+      // Spacebar hold for pan (prevent window scroll)
       if (e.code === 'Space' && !e.repeat) {
+        e.preventDefault();
         isSpacePressedRef.current = true;
+        setIsSpacePressed(true);
       }
 
       // Undo: Ctrl + Z
@@ -576,11 +573,29 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
         return;
       }
 
+      // Zoom keys: +/= and -/_ and 0
+      if (e.key === '=' || e.key === '+') {
+        e.preventDefault();
+        zoomIn();
+        return;
+      }
+      if (e.key === '-' || e.key === '_') {
+        e.preventDefault();
+        zoomOut();
+        return;
+      }
+      if (e.key === '0' && (e.ctrlKey || e.metaKey)) {
+        e.preventDefault();
+        resetZoom();
+        return;
+      }
+
       // Tool shortcut keys
       const key = e.key.toLowerCase();
       if (key === 'v' || key === 's') setTool('select');
+      else if (key === 'h' && !e.ctrlKey) setTool('hand');
       else if (key === 'p') setTool('pen');
-      else if (key === 'h') setTool('highlighter');
+      else if (key === 'i') setTool('highlighter');
       else if (key === 'e') setTool('eraser');
       else if (key === 'r') setTool('rectangle');
       else if (key === 'c') setTool('circle');
@@ -592,7 +607,11 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
     const handleKeyUp = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         isSpacePressedRef.current = false;
-        setIsPanning(false);
+        setIsSpacePressed(false);
+        if (tool !== 'hand') {
+          isPanningRef.current = false;
+          setIsPanning(false);
+        }
       }
     };
 
@@ -603,7 +622,7 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, [undo, redo, selectedElementId, deleteSelectedElement]);
+  }, [undo, redo, selectedElementId, deleteSelectedElement, zoomIn, zoomOut, resetZoom, tool]);
 
   return {
     elements,
@@ -623,6 +642,7 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
     transform,
     setTransform,
     isPanning,
+    isSpacePressed,
     activeDrawingElement,
     liveStrokes,
     textInputState,
@@ -641,7 +661,6 @@ export function useWhiteboard({ socket, currentUser, onEmitCursor }: UseWhiteboa
     handleMouseDown,
     handleMouseMove,
     handleMouseUp,
-    handleWheel,
     removeLiveStroke,
   };
 }

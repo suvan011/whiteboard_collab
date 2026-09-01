@@ -1,7 +1,7 @@
 /**
  * WhiteboardCanvas.tsx
  * High-performance DPI-aware HTML5 canvas component with continuous render loop,
- * zoom/pan matrix, remote cursors, and touch/mouse interaction handlers.
+ * smooth trackpad/wheel panning, pinch-to-zoom, multi-touch, and remote cursors.
  */
 
 import React, { useRef, useEffect, useCallback } from 'react';
@@ -22,7 +22,9 @@ interface WhiteboardCanvasProps {
   tool: ToolType;
   color: string;
   transform: CanvasTransform;
+  setTransform: React.Dispatch<React.SetStateAction<CanvasTransform>>;
   isPanning: boolean;
+  isSpacePressed?: boolean;
   activeDrawingElement: DrawingElement | null;
   liveStrokes: Map<string, LiveStrokeChunk>;
   remoteCursors: Map<string, RemoteCursor>;
@@ -41,7 +43,6 @@ interface WhiteboardCanvasProps {
   onMouseDown: (e: React.MouseEvent<HTMLCanvasElement>, rect: DOMRect) => void;
   onMouseMove: (e: React.MouseEvent<HTMLCanvasElement>, rect: DOMRect) => void;
   onMouseUp: () => void;
-  onWheel: (e: React.WheelEvent<HTMLCanvasElement>, rect: DOMRect) => void;
 }
 
 export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
@@ -50,7 +51,9 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   tool,
   color,
   transform,
+  setTransform,
   isPanning,
+  isSpacePressed = false,
   activeDrawingElement,
   liveStrokes,
   remoteCursors,
@@ -60,10 +63,15 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   onMouseDown,
   onMouseMove,
   onMouseUp,
-  onWheel,
 }) => {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
+  const touchStateRef = useRef<{
+    lastX: number;
+    lastY: number;
+    lastDist: number;
+    isMultiTouch: boolean;
+  }>({ lastX: 0, lastY: 0, lastDist: 0, isMultiTouch: false });
 
   // High-DPI canvas resize handling
   useEffect(() => {
@@ -120,16 +128,82 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
     ctx.restore();
   }, [elements, selectedElementId, liveStrokes, activeDrawingElement, transform]);
 
-  // Determine CSS Cursor based on active tool
+  // Native non-passive Wheel listener attached to container for smooth 2D scrolling & zoom
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleNativeWheel = (e: WheelEvent) => {
+      e.preventDefault();
+
+      const rect = container.getBoundingClientRect();
+      const mouseX = e.clientX - rect.left;
+      const mouseY = e.clientY - rect.top;
+
+      if (e.ctrlKey || e.metaKey) {
+        // Pinch-to-zoom or Ctrl + Scroll zoom centered at mouse pointer
+        const zoomDelta = e.deltaY < 0 ? 1.08 : 0.92;
+        setTransform((prev) => {
+          const newScale = Math.min(Math.max(prev.scale * zoomDelta, 0.15), 6.0);
+          const newOffsetX = mouseX - (mouseX - prev.offsetX) * (newScale / prev.scale);
+          const newOffsetY = mouseY - (mouseY - prev.offsetY) * (newScale / prev.scale);
+          return {
+            scale: newScale,
+            offsetX: newOffsetX,
+            offsetY: newOffsetY,
+          };
+        });
+      } else if (e.shiftKey) {
+        // Shift + Wheel -> Horizontal scrolling
+        const delta = e.deltaX !== 0 ? e.deltaX : e.deltaY;
+        setTransform((prev) => ({
+          ...prev,
+          offsetX: prev.offsetX - delta * 0.9,
+        }));
+      } else {
+        // Smooth 2D scrolling / pan (supports trackpads and regular mouse wheels)
+        setTransform((prev) => ({
+          ...prev,
+          offsetX: prev.offsetX - e.deltaX * 0.9,
+          offsetY: prev.offsetY - e.deltaY * 0.9,
+        }));
+      }
+    };
+
+    container.addEventListener('wheel', handleNativeWheel, { passive: false });
+    return () => {
+      container.removeEventListener('wheel', handleNativeWheel);
+    };
+  }, [setTransform]);
+
+  // Determine CSS Cursor based on active tool and state
   let cursorStyle = 'crosshair';
-  if (isPanning) cursorStyle = 'grabbing';
+  if (tool === 'hand' || isPanning || isSpacePressed) cursorStyle = isPanning ? 'grabbing' : 'grab';
   else if (tool === 'select') cursorStyle = 'default';
   else if (tool === 'eraser') cursorStyle = 'cell';
   else if (tool === 'text') cursorStyle = 'text';
 
-  // Touch event adapter
+  // Multi-touch Gesture Handler (1 finger draw/hand, 2 fingers pan & pinch zoom)
   const handleTouchStart = (e: React.TouchEvent<HTMLCanvasElement>) => {
+    if (e.touches.length === 2) {
+      // 2 fingers = Pan & Zoom
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+
+      touchStateRef.current = {
+        lastX: midX,
+        lastY: midY,
+        lastDist: dist,
+        isMultiTouch: true,
+      };
+      return;
+    }
+
     if (e.touches.length === 1 && canvasRef.current) {
+      touchStateRef.current.isMultiTouch = false;
       const touch = e.touches[0];
       const rect = canvasRef.current.getBoundingClientRect();
       const mouseEvent = {
@@ -142,7 +216,39 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   };
 
   const handleTouchMove = (e: React.TouchEvent<HTMLCanvasElement>) => {
-    if (e.touches.length === 1 && canvasRef.current) {
+    if (e.touches.length === 2 && touchStateRef.current.isMultiTouch && canvasRef.current) {
+      const t1 = e.touches[0];
+      const t2 = e.touches[1];
+      const dist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY);
+      const midX = (t1.clientX + t2.clientX) / 2;
+      const midY = (t1.clientY + t2.clientY) / 2;
+
+      const dx = midX - touchStateRef.current.lastX;
+      const dy = midY - touchStateRef.current.lastY;
+      const zoomRatio = touchStateRef.current.lastDist > 0 ? dist / touchStateRef.current.lastDist : 1;
+
+      const rect = canvasRef.current.getBoundingClientRect();
+      const localMidX = midX - rect.left;
+      const localMidY = midY - rect.top;
+
+      setTransform((prev) => {
+        const newScale = Math.min(Math.max(prev.scale * zoomRatio, 0.2), 5.0);
+        const newOffsetX = localMidX - (localMidX - (prev.offsetX + dx)) * (newScale / prev.scale);
+        const newOffsetY = localMidY - (localMidY - (prev.offsetY + dy)) * (newScale / prev.scale);
+        return {
+          scale: newScale,
+          offsetX: newOffsetX,
+          offsetY: newOffsetY,
+        };
+      });
+
+      touchStateRef.current.lastX = midX;
+      touchStateRef.current.lastY = midY;
+      touchStateRef.current.lastDist = dist;
+      return;
+    }
+
+    if (e.touches.length === 1 && !touchStateRef.current.isMultiTouch && canvasRef.current) {
       const touch = e.touches[0];
       const rect = canvasRef.current.getBoundingClientRect();
       const mouseEvent = {
@@ -156,11 +262,13 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
   return (
     <div
       ref={containerRef}
+      onContextMenu={(e) => e.preventDefault()}
       className="relative w-full h-full overflow-hidden canvas-grid select-none"
       style={{ cursor: cursorStyle }}
     >
       <canvas
         ref={canvasRef}
+        onContextMenu={(e) => e.preventDefault()}
         onMouseDown={(e) => {
           if (canvasRef.current) {
             onMouseDown(e, canvasRef.current.getBoundingClientRect());
@@ -173,11 +281,6 @@ export const WhiteboardCanvas: React.FC<WhiteboardCanvasProps> = ({
         }}
         onMouseUp={onMouseUp}
         onMouseLeave={onMouseUp}
-        onWheel={(e) => {
-          if (canvasRef.current) {
-            onWheel(e, canvasRef.current.getBoundingClientRect());
-          }
-        }}
         onTouchStart={handleTouchStart}
         onTouchMove={handleTouchMove}
         onTouchEnd={onMouseUp}

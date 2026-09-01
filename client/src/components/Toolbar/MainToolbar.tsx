@@ -5,6 +5,7 @@
 
 import React from 'react';
 import {
+  Hand,
   MousePointer,
   Pencil,
   Highlighter,
@@ -31,9 +32,10 @@ export const MainToolbar: React.FC<MainToolbarProps> = ({
   onOpenClearModal,
 }) => {
   const tools = [
-    { id: 'select' as ToolType, label: 'Select / Move', icon: MousePointer, shortcut: 'S' },
+    { id: 'select' as ToolType, label: 'Select / Move Element', icon: MousePointer, shortcut: 'V' },
+    { id: 'hand' as ToolType, label: 'Hand / Pan Canvas', icon: Hand, shortcut: 'H' },
     { id: 'pen' as ToolType, label: 'Pen', icon: Pencil, shortcut: 'P' },
-    { id: 'highlighter' as ToolType, label: 'Highlighter', icon: Highlighter, shortcut: 'H' },
+    { id: 'highlighter' as ToolType, label: 'Highlighter', icon: Highlighter, shortcut: 'I' },
     { id: 'eraser' as ToolType, label: 'Eraser', icon: Eraser, shortcut: 'E' },
     { id: 'rectangle' as ToolType, label: 'Rectangle', icon: Square, shortcut: 'R' },
     { id: 'circle' as ToolType, label: 'Circle', icon: Circle, shortcut: 'C' },

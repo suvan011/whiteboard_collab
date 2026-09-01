@@ -24,7 +24,14 @@ export const ShareRoomModal: React.FC<ShareRoomModalProps> = ({
 
   if (!isOpen) return null;
 
-  const roomLink = `${window.location.origin}?room=${roomId}`;
+  const isLocal =
+    window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+  const origin =
+    !isLocal && window.location.protocol === 'http:'
+      ? window.location.origin.replace('http:', 'https:')
+      : window.location.origin;
+
+  const roomLink = `${origin}?room=${roomId}`;
 
   const copyToClipboard = (text: string, isLink: boolean) => {
     navigator.clipboard.writeText(text);

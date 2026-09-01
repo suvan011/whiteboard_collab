@@ -12,24 +12,26 @@ interface KeyboardShortcutsModalProps {
 }
 
 const SHORTCUTS = [
-  { section: 'Tools', items: [
+  { section: 'Drawing & Selection Tools', items: [
+    { label: 'Select / Move Element', keys: ['V', 'or', 'S'] },
+    { label: 'Hand / Pan Tool', keys: ['H'] },
     { label: 'Pen Tool', keys: ['P'] },
-    { label: 'Highlighter', keys: ['H'] },
+    { label: 'Highlighter', keys: ['I'] },
     { label: 'Eraser', keys: ['E'] },
-    { label: 'Select / Move', keys: ['S', 'or', 'V'] },
     { label: 'Rectangle', keys: ['R'] },
     { label: 'Circle / Ellipse', keys: ['C'] },
     { label: 'Line', keys: ['L'] },
     { label: 'Arrow', keys: ['A'] },
     { label: 'Text Note', keys: ['T'] },
   ]},
-  { section: 'Actions & Navigation', items: [
-    { label: 'Undo', keys: ['Ctrl', 'Z'] },
-    { label: 'Redo', keys: ['Ctrl', 'Shift', 'Z'] },
+  { section: 'Navigation & Scrolling', items: [
+    { label: 'Scroll / Pan Canvas (2D)', keys: ['Mouse Wheel', 'or', 'Trackpad'] },
+    { label: 'Horizontal Pan', keys: ['Shift', '+', 'Scroll'] },
+    { label: 'Fast Drag Pan', keys: ['Space', '+', 'Drag', 'or', 'Middle-Click'] },
+    { label: 'Zoom In / Out', keys: ['Ctrl', '+', 'Scroll', 'or', '+ / -'] },
+    { label: 'Lock Square / Circle', keys: ['Shift', '+', 'Drag'] },
+    { label: 'Undo / Redo', keys: ['Ctrl', 'Z', 'or', 'Ctrl', 'Y'] },
     { label: 'Delete Selected', keys: ['Del', 'or', 'Backspace'] },
-    { label: 'Pan Canvas', keys: ['Space', '+', 'Drag'] },
-    { label: 'Zoom In / Out', keys: ['Ctrl', '+', 'Scroll'] },
-    { label: 'Lock Aspect Ratio', keys: ['Shift', '+', 'Drag'] },
   ]}
 ];
 
