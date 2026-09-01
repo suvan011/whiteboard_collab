@@ -155,7 +155,7 @@ export const LandingPage: React.FC<LandingPageProps> = ({ onJoinRoom, initialRoo
   };
 
   return (
-    <div className="relative min-h-screen w-full bg-slate-950 text-slate-100 flex flex-col justify-between overflow-y-auto overflow-x-hidden selection:bg-blue-500 selection:text-white">
+   <div className="relative h-screen w-full bg-slate-950 text-slate-100 flex flex-col justify-between overflow-y-auto overflow-x-hidden ...">
       {/* Background canvas animation */}
       <canvas ref={canvasRef} className="absolute inset-0 pointer-events-none z-0 opacity-60" />
       <div className="absolute inset-0 hero-glow pointer-events-none z-0" />
